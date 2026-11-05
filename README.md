@@ -36,12 +36,35 @@ The workflow is triggered whenever code is pushed to the `main` branch. It can a
 ### Workflow Steps
 
 1. **Checkout Code:** Uses `actions/checkout@v4` to fetch the repository contents.
-2. **Set Up Docker Buildx:** Configures Docker builds using `docker/setup-buildx-action`.
-3. **Docker Hub Authentication:** Uses `docker/login-action@v3` to authenticate with Docker Hub.
-4. **Build and Push:** Uses `docker/build-push-action@v6` to build the Docker image and publish it to Docker Hub.
+2. **Testing:** Installs PHP/Composer, runs composer install, runs PHP CodeSniffer (lint), applies migrations (SQLite), and runs PHPUnit and Laravel Dusk (browser) tests.
+3. **Set Up Docker Buildx:** Configures Docker builds using `docker/setup-buildx-action`.
+4. **Docker Hub Authentication:** Uses `docker/login-action@v3` to authenticate with Docker Hub.
 5. **Image Tagging:** Generates Docker image tags using the Git branch, short commit SHA, and Unix timestamp.
+6. **Build and Push:** Uses `docker/build-push-action@v6` to build the Docker image and publish it to Docker Hub.
 
-### GitHub Repository Secrets
+### Docker Image Tag Format
+
+This project generates image tags using git branch, short commit SHA, and Unix timestamp to ensure traceability between application code and deployed container images.
+
+**Tagging Convention:**
+```
+<branch>-<short-sha>-<timestamp>
+```
+
+For example:
+
+```bash
+krupanshi20/budget:main-abc1234-1793894400
+```
+
+### Workflow Output
+
+The primary output of the workflow is a Docker image published to Docker Hub.
+
+**Docker Hub Repository:** [`krupanshi20/budget`](https://hub.docker.com/r/krupanshi20/budget)
+
+
+## Security and Configuration
 
 Before running the workflow, configure the following secrets in your GitHub repository:
 
@@ -53,73 +76,11 @@ Navigate to:
 |---|---|---|
 | `DOCKER_USERNAME` | Repository Variable | Docker Hub username |
 | `DOCKER_ACCESS_TOKEN` | Repository Secret | Docker Hub access token |
+| `APP_DATABASE` | Repository Variable | Database name |
+| `APP_DATABASE_PASSWORD` | Repository Secret | Database password | 
 
 > **Important:** Never hardcode credentials or commit secrets to the repository. Always use GitHub Actions secrets.
 
-### Workflow Output
-
-The primary output of the workflow is a Docker image published to Docker Hub.
-
-**Docker Hub Repository:** [`krupanshi20/budget`](https://hub.docker.com/r/krupanshi20/budget)
-
-
-## Docker Image Tagging Strategy
-
-This project generates image tags using git branch, short commit SHA, and Unix timestamp to ensure traceability between application code and deployed container images.
-
-### Tagging Convention
-The image tag follows this format:
-```
-<branch>-<short-sha>-<timestamp>
-```
-
-For example:
-
-```bash
-krupanshi20/budget:main-abc1234-1793894400
-```
-
-**Best Practice:** Avoid relying exclusively on the `latest` tag in production environments. FluxCD should track explicit, immutable image tags to ensure predictable and reproducible deployments.
-
-## FluxCD GitOps Integration
-
-The [`budget-fluxcd`](https://github.com/Kru2003/budget-fluxcd) repository contains the GitOps configuration responsible for deploying the Budget application to Kubernetes.
-
-FluxCD continuously monitors the Docker Hub repository and manages application deployments based on the configured image policies.
-
-### FluxCD Components
-
-The GitOps workflow uses the following FluxCD resources:
-
-#### 1. ImageRepository
-
-The `ImageRepository` resource scans the Docker Hub repository:
-
-```yaml
-image: krupanshi20/budget
-```
-
-It periodically checks the registry for newly published image tags.
-
-#### 2. ImagePolicy
-
-The `ImagePolicy` resource defines the rules for selecting an image tag.
-
-It determines which available image tag should be selected based on the configured filtering and sorting strategy.
-
-> Note: Image tags follow the `<branch>-<short-sha>-<timestamp>` format. Configure the FluxCD ImagePolicy to filter tags for the desired branch and extract the Unix timestamp for numerical sorting. This allows FluxCD to select the newest image correctly.
-
-#### 3. ImageUpdateAutomation
-
-The `ImageUpdateAutomation` resource monitors image policies and updates the image reference in the GitOps repository when a new image is selected.
-
-Depending on the configuration, FluxCD can:
-
-- Commit updated image tags directly to the GitOps repository.
-- Push changes to a configured Git branch.
-- Keep Kubernetes deployment manifests synchronized with the latest selected image.
-
-This approach ensures that application deployments are managed declaratively through Git rather than manually updating Kubernetes resources.
 
 ## Troubleshooting
 
@@ -157,17 +118,6 @@ Replace `<YOUR_TAG>` with the actual published tag.
 You can verify available tags here:
 
 https://hub.docker.com/r/krupanshi20/budget/tags
-
-### 4. FluxCD Not Updating the Deployment
-
-If FluxCD does not detect or deploy a new image:
-
-- Verify that the `ImageRepository` points to the correct Docker Hub repository.
-- Check the `ImagePolicy` filtering and sorting configuration.
-- Ensure that the image tag format matches the policy.
-- Verify that `ImageUpdateAutomation` is configured correctly.
-- Check whether the GitOps repository has received the updated image reference.
-- Inspect FluxCD controller logs and reconciliation status.
 
 
 ## Related Projects
