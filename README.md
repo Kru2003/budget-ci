@@ -1,6 +1,6 @@
 # Budget CI/CD Pipeline
 
-Budget-CI is a fork of the Laravel Budget application that demonstrates a complete **CI/CD workflow using GitHub Actions, Docker Hub, Kubernetes (K3s), and FluxCD**.
+Budget-CI is a fork of the [Laravel Budget application](https://github.com/range-of-motion/budget) that demonstrates a complete **CI/CD workflow using GitHub Actions, Docker Hub, Kubernetes (K3s), and FluxCD**.
 
 The primary goal of this project is to automate Docker image building and publishing, then integrate with a GitOps deployment workflow through the [`budget-fluxcd`](https://github.com/Kru2003/budget-fluxcd) repository.
 
@@ -40,32 +40,6 @@ The workflow is triggered whenever code is pushed to the `main` branch. It can a
 3. **Docker Hub Authentication:** Uses `docker/login-action@v3` to authenticate with Docker Hub.
 4. **Build and Push:** Uses `docker/build-push-action@v6` to build the Docker image and publish it to Docker Hub.
 5. **Image Tagging:** Generates Docker image tags using the Git branch, short commit SHA, and Unix timestamp.
-
-### Example GitHub Actions Configuration
-
-```yaml
-- name: Login to Docker Hub
-  uses: docker/login-action@v3
-  with:
-    username: ${{ vars.DOCKER_USERNAME }}
-    password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
-
-- name: Generate Docker tag
-  id: meta
-  uses: docker/metadata-action@v5
-  with:
-    images: ${{ vars.DOCKER_USERNAME }}/budget
-    tags: |
-        type=raw,value={{branch}}-{{sha}}-{{date 'X'}}
-
-- name: Build and push
-  uses: docker/build-push-action@v6
-  with:
-    context: .
-    file: ./docker/Dockerfile
-    push: true
-    tags: ${{ steps.meta.outputs.tags }}
-```
 
 ### GitHub Repository Secrets
 
@@ -145,19 +119,6 @@ Depending on the configuration, FluxCD can:
 - Push changes to a configured Git branch.
 - Keep Kubernetes deployment manifests synchronized with the latest selected image.
 
-### GitOps Deployment Flow
-
-```mermaid
-flowchart TD
-    A[New Docker Image Published] --> B[ImageRepository]
-    B --> C[ImagePolicy]
-    C --> D[ImageUpdateAutomation]
-    D --> E[Update GitOps Manifest]
-    E --> F[FluxCD Reconciliation]
-    F --> G[HelmRelease Updated]
-    G --> H[Budget Application Deployed]
-```
-
 This approach ensures that application deployments are managed declaratively through Git rather than manually updating Kubernetes resources.
 
 ## Troubleshooting
@@ -217,40 +178,7 @@ This project is part of a larger DevOps ecosystem consisting of three repositori
 |---|---|
 | `budget-ci` | Application source code and GitHub Actions CI pipeline for building and publishing Docker images |
 | `budget-fluxcd` | GitOps repository containing Helm configurations and FluxCD resources for application deployment |
-| `budget-infra` | Infrastructure repository containing Terraform configurations for AWS, EC2, K3s, and FluxCD setup |
-
-### 1. Infrastructure Repository (`Infrastructure`)
-
-Responsible for provisioning and managing the underlying cloud infrastructure.
-
-Key responsibilities:
-
-- Provisioning AWS infrastructure using Terraform.
-- Creating and configuring EC2 instances.
-- Setting up the K3s Kubernetes cluster.
-- Installing and configuring FluxCD.
-
-### 2. GitOps Repository (`budget-fluxcd`)
-
-Responsible for managing Kubernetes application deployments.
-
-Key responsibilities:
-
-- Maintaining Helm charts and HelmRelease configurations.
-- Managing FluxCD resources.
-- Monitoring Docker image updates.
-- Automating application deployments through GitOps.
-
-### 3. CI Repository (`budget-ci`)
-
-Responsible for application development and continuous integration.
-
-Key responsibilities:
-
-- Maintaining the Budget application source code.
-- Building Docker images.
-- Publishing images to Docker Hub.
-- Generating unique image tags using branch, commit SHA, and timestamp
+| `Infrastructure` | Infrastructure repository containing Terraform configurations for AWS, EC2, K3s, and FluxCD setup |
 
 ## Complete DevOps Workflow
 
