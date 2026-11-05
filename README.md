@@ -1,67 +1,199 @@
-# Budget
+# Budget CI/CD Pipeline
 
-![GitHub latest release](https://img.shields.io/github/v/release/range-of-motion/budget?include_prereleases)
-[![Build status](https://travis-ci.com/range-of-motion/budget.svg?branch=master)](https://travis-ci.com/range-of-motion/budget)
-[![codecov](https://codecov.io/gh/range-of-motion/budget/branch/master/graph/badge.svg)](https://codecov.io/gh/range-of-motion/budget)
-[![GitHub license](https://img.shields.io/github/license/range-of-motion/budget.svg)](https://github.com/range-of-motion/budget/blob/master/LICENSE)
+Budget-CI is a fork of the [Laravel Budget application](https://github.com/range-of-motion/budget) that demonstrates a complete **CI/CD workflow using GitHub Actions, Docker Hub, Kubernetes (K3s), and FluxCD**.
 
-Budget is an open-source web application that helps you keep track of your finances.
+The primary goal of this project is to automate Docker image building and publishing, then integrate with a GitOps deployment workflow through the [`budget-fluxcd`](https://github.com/Kru2003/budget-fluxcd) repository.
 
-You can use Budget by hosting it yourself, or using [the instance hosted by us](https://usebudget.com).
+## Architecture Overview
 
-![Product](https://user-images.githubusercontent.com/9268822/46098425-a8877300-c1c4-11e8-9293-f43ceb9d6f97.png)
+The following diagram illustrates the complete CI/CD and GitOps workflow:
 
-## Features
+```mermaid
+flowchart LR
+    subgraph GitHub
+        A[budget-ci] --> B[GitHub Actions]
+        B --> C[Docker Hub]
+    end
 
-* Insertion and management of transactions
-* Ability to organize transactions using tags
-* Facilitate uploading and organizing of receipts
-* Support for importing transactions (CSV format)
-* Reports that visualize financials (showing weekly balance and most expensive tags, for example)
-* Supports multiple currencies
-* Available in multiple languages
-* Weekly summary available through e-mail
-
-## Requirements
-
-* PHP 8.2 or higher
-* HTTP server (for example Apache or NGINX)
-* MySQL
-* Composer
-* Node.js
-
-## Installation
-
-* Clone the repository (`git clone https://github.com/range-of-motion/budget.git`)
-    * You should always check out a tag, since the `master` branch might not always be stable (`git checkout TAG`)
-* Install dependencies (`composer install --no-dev -o`)
-* Run installation command (`php artisan budget:install`)
-* Configure additional services in `.env` (database or mail, for example)
-* Run migrations for database (`php artisan migrate`)
-* Head over to your list of crons (`crontab -e`) and add `* * * * * cd /path-to-budget && php artisan schedule:run >> /dev/null 2>&1`
-
-*Note that in order for certain features to work properly, the jobs queue needs to be watched. This can be done by either running `php artisan queue:work` or using [Supervisor](https://laravel.com/docs/7.x/queues#supervisor-configuration).*
-
-## Updating
-
-Use the command below to update to the latest version.
-
-```
-php artisan budget:update
+    subgraph AWS Cloud
+        D[Infrastructure] --> E[K3s Cluster]
+        C --> F[FluxCD Image Automation]
+        F --> G[budget-fluxcd]
+        G --> H[HelmRelease]
+        H --> E
+        E --> I[Budget Application]
+    end
 ```
 
-## Docker
+## Continuous Integration (GitHub Actions)
 
-You can get set-up with Budget using Docker and Docker Compose. The advantage of using Docker Compose is that it will set you up with a MySQL database.
+The GitHub Actions workflow, located at `.github/workflows/ci.yaml`, automates building and publishing Docker images.
 
-### Docker
+### Workflow Trigger
 
-You can either build the Docker image yourself, or use the ones available on [Docker Hub](https://hub.docker.com/r/rangeofmotion/budget).
+The workflow is triggered whenever code is pushed to the `main` branch. It can also be extended to run on pull requests for validation.
 
-### Docker Compose
+### Workflow Steps
 
-Assuming you already have Docker Compose installed, simply run `docker-compose up -d` and you're good to go.
+1. **Checkout Code:** Uses `actions/checkout@v4` to fetch the repository contents.
+2. **Set Up Docker Buildx:** Configures Docker builds using `docker/setup-buildx-action`.
+3. **Docker Hub Authentication:** Uses `docker/login-action@v3` to authenticate with Docker Hub.
+4. **Build and Push:** Uses `docker/build-push-action@v6` to build the Docker image and publish it to Docker Hub.
+5. **Image Tagging:** Generates Docker image tags using the Git branch, short commit SHA, and Unix timestamp.
 
-## Contact
+### GitHub Repository Secrets
 
-* [Discord](https://discord.gg/QFQdvy3)
+Before running the workflow, configure the following secrets in your GitHub repository:
+
+Navigate to:
+
+**Settings → Secrets and variables → Actions → New repository secret**
+
+| Name | GitHub Configuration | Description |
+|---|---|---|
+| `DOCKER_USERNAME` | Repository Variable | Docker Hub username |
+| `DOCKER_ACCESS_TOKEN` | Repository Secret | Docker Hub access token |
+
+> **Important:** Never hardcode credentials or commit secrets to the repository. Always use GitHub Actions secrets.
+
+### Workflow Output
+
+The primary output of the workflow is a Docker image published to Docker Hub.
+
+**Docker Hub Repository:** [`krupanshi20/budget`](https://hub.docker.com/r/krupanshi20/budget)
+
+
+## Docker Image Tagging Strategy
+
+This project generates image tags using git branch, short commit SHA, and Unix timestamp to ensure traceability between application code and deployed container images.
+
+### Tagging Convention
+The image tag follows this format:
+```
+<branch>-<short-sha>-<timestamp>
+```
+
+For example:
+
+```bash
+krupanshi20/budget:main-abc1234-1793894400
+```
+
+**Best Practice:** Avoid relying exclusively on the `latest` tag in production environments. FluxCD should track explicit, immutable image tags to ensure predictable and reproducible deployments.
+
+## FluxCD GitOps Integration
+
+The [`budget-fluxcd`](https://github.com/Kru2003/budget-fluxcd) repository contains the GitOps configuration responsible for deploying the Budget application to Kubernetes.
+
+FluxCD continuously monitors the Docker Hub repository and manages application deployments based on the configured image policies.
+
+### FluxCD Components
+
+The GitOps workflow uses the following FluxCD resources:
+
+#### 1. ImageRepository
+
+The `ImageRepository` resource scans the Docker Hub repository:
+
+```yaml
+image: krupanshi20/budget
+```
+
+It periodically checks the registry for newly published image tags.
+
+#### 2. ImagePolicy
+
+The `ImagePolicy` resource defines the rules for selecting an image tag.
+
+It determines which available image tag should be selected based on the configured filtering and sorting strategy.
+
+> Note: Image tags follow the `<branch>-<short-sha>-<timestamp>` format. Configure the FluxCD ImagePolicy to filter tags for the desired branch and extract the Unix timestamp for numerical sorting. This allows FluxCD to select the newest image correctly.
+
+#### 3. ImageUpdateAutomation
+
+The `ImageUpdateAutomation` resource monitors image policies and updates the image reference in the GitOps repository when a new image is selected.
+
+Depending on the configuration, FluxCD can:
+
+- Commit updated image tags directly to the GitOps repository.
+- Push changes to a configured Git branch.
+- Keep Kubernetes deployment manifests synchronized with the latest selected image.
+
+This approach ensures that application deployments are managed declaratively through Git rather than manually updating Kubernetes resources.
+
+## Troubleshooting
+
+### 1. Docker Build Failures
+
+If the GitHub Actions workflow fails during the Docker build process:
+
+- Check the GitHub Actions workflow logs.
+- Verify that the Dockerfile exists in the repository.
+- Check for missing system packages or dependencies.
+- Verify Composer dependencies and application configuration.
+- Ensure all required files are included in the Docker build context.
+
+### 2. Docker Hub Login Errors
+
+If Docker authentication fails:
+
+- Verify that `DOCKER_USERNAME` is correctly configured.
+- Ensure that `DOCKER_ACCESS_TOKEN` is valid.
+- Check whether the Docker Hub token has the required permissions.
+- Generate a new access token if the existing one has expired.
+
+### 3. Docker Image Not Found
+
+After a successful GitHub Actions workflow, verify that the image exists in Docker Hub.
+
+Pull the image using:
+
+```bash
+docker pull krupanshi20/budget:<YOUR_TAG>
+```
+
+Replace `<YOUR_TAG>` with the actual published tag.
+
+You can verify available tags here:
+
+https://hub.docker.com/r/krupanshi20/budget/tags
+
+### 4. FluxCD Not Updating the Deployment
+
+If FluxCD does not detect or deploy a new image:
+
+- Verify that the `ImageRepository` points to the correct Docker Hub repository.
+- Check the `ImagePolicy` filtering and sorting configuration.
+- Ensure that the image tag format matches the policy.
+- Verify that `ImageUpdateAutomation` is configured correctly.
+- Check whether the GitOps repository has received the updated image reference.
+- Inspect FluxCD controller logs and reconciliation status.
+
+
+## Related Projects
+
+This project is part of a larger DevOps ecosystem consisting of three repositories.
+
+| Repository | Description |
+|---|---|
+| `budget-ci` | Application source code and GitHub Actions CI pipeline for building and publishing Docker images |
+| `budget-fluxcd` | GitOps repository containing Helm configurations and FluxCD resources for application deployment |
+| `Infrastructure` | Infrastructure repository containing Terraform configurations for AWS, EC2, K3s, and FluxCD setup |
+
+## Complete DevOps Workflow
+
+The three repositories work together to implement an automated DevOps pipeline:
+
+```mermaid
+flowchart TD
+    A[Infrastructure] -->|Provision| B[AWS EC2 + K3s]
+    B --> C[FluxCD Controllers]
+
+    D[budget-ci] -->|Push Code| E[GitHub Actions]
+    E -->|Build and Push| F[Docker Hub]
+
+    F -->|Discover New Image| G[Flux Image Automation]
+    G -->|Commit Updated Image Tag| H[budget-fluxcd]
+    H -->|Git Source Reconciliation| C
+    C -->|HelmRelease Reconciliation| I[Budget Application on K3s]
+```
